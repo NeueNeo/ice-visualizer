@@ -110,6 +110,16 @@ let recordedFrames = [];
 // Export path
 const EXPORT_PATH = '~/Desktop/';
 
+// Animation frame ID for cleanup
+let animationFrameId = null;
+
+// Bound event handlers for cleanup
+let boundOnResize = null;
+let boundOnMouseMove = null;
+let boundOnCanvasClick = null;
+let boundOnRightClick = null;
+let boundOnKeyDown = null;
+
 // === Initialization ===
 function init() {
   // Scene
@@ -168,15 +178,107 @@ function init() {
     document.getElementById('btn-pulses').classList.add('active');
   }, 100);
 
+  // Bind event handlers for proper cleanup
+  boundOnResize = onWindowResize.bind(this);
+  boundOnMouseMove = onMouseMove.bind(this);
+  boundOnCanvasClick = onCanvasClick.bind(this);
+  boundOnRightClick = onRightClick.bind(this);
+  boundOnKeyDown = (e) => {
+    if (e.key === 'h' || e.key === 'H') toggleUI();
+  };
+
   // Event listeners
-  window.addEventListener('resize', onWindowResize);
-  window.addEventListener('mousemove', onMouseMove);
-  renderer.domElement.addEventListener('click', onCanvasClick);
-  renderer.domElement.addEventListener('contextmenu', onRightClick);
+  window.addEventListener('resize', boundOnResize);
+  window.addEventListener('mousemove', boundOnMouseMove);
+  renderer.domElement.addEventListener('click', boundOnCanvasClick);
+  renderer.domElement.addEventListener('contextmenu', boundOnRightClick);
+  document.addEventListener('keydown', boundOnKeyDown);
+  
+  // Cleanup on page unload
+  window.addEventListener('beforeunload', cleanup);
+  
   setupControls();
 
   // Start animation
   animate();
+}
+
+// === Cleanup / Dispose ===
+function cleanup() {
+  // Cancel animation frame
+  if (animationFrameId) {
+    cancelAnimationFrame(animationFrameId);
+    animationFrameId = null;
+  }
+  
+  // Stop recording if active
+  if (isRecording) {
+    isRecording = false;
+    recordedFrames = [];
+  }
+  
+  // Remove event listeners
+  if (boundOnResize) window.removeEventListener('resize', boundOnResize);
+  if (boundOnMouseMove) window.removeEventListener('mousemove', boundOnMouseMove);
+  if (boundOnKeyDown) document.removeEventListener('keydown', boundOnKeyDown);
+  if (renderer && renderer.domElement) {
+    if (boundOnCanvasClick) renderer.domElement.removeEventListener('click', boundOnCanvasClick);
+    if (boundOnRightClick) renderer.domElement.removeEventListener('contextmenu', boundOnRightClick);
+  }
+  
+  // Dispose Three.js objects
+  disposeScene();
+  
+  // Dispose renderer
+  if (renderer) {
+    renderer.dispose();
+    renderer.forceContextLoss();
+  }
+  
+  // Dispose composer
+  if (composer) {
+    composer.dispose();
+  }
+}
+
+// === Dispose Scene Objects ===
+function disposeScene() {
+  // Dispose nodes
+  nodes.forEach(node => {
+    if (node.geometry) node.geometry.dispose();
+    if (node.material) node.material.dispose();
+  });
+  nodes = [];
+  
+  // Dispose connections
+  connections.forEach(conn => {
+    if (conn.geometry) conn.geometry.dispose();
+    if (conn.material) conn.material.dispose();
+  });
+  connections = [];
+  
+  // Dispose particles
+  if (particleSystem) {
+    if (particleSystem.geometry) particleSystem.geometry.dispose();
+    if (particleSystem.material) particleSystem.material.dispose();
+  }
+  
+  // Dispose core node
+  if (coreNode) {
+    coreNode.traverse(child => {
+      if (child.geometry) child.geometry.dispose();
+      if (child.material) child.material.dispose();
+    });
+  }
+  
+  // Dispose data pulses
+  dataPulses.forEach(pulse => {
+    pulse.traverse(child => {
+      if (child.geometry) child.geometry.dispose();
+      if (child.material) child.material.dispose();
+    });
+  });
+  dataPulses = [];
 }
 
 // === Post-Processing Setup ===
@@ -396,7 +498,7 @@ function createParticles() {
 
 // === Animation Loop ===
 function animate() {
-  requestAnimationFrame(animate);
+  animationFrameId = requestAnimationFrame(animate);
   
   time += 0.016; // ~60fps
   frameCount++;
@@ -791,12 +893,7 @@ function toggleUI() {
   }
 }
 
-// Press H to toggle UI
-document.addEventListener('keydown', (e) => {
-  if (e.key === 'h' || e.key === 'H') {
-    toggleUI();
-  }
-});
+// Press H to toggle UI - moved to init() for proper cleanup
 
 // === Switch Visualization ===
 function switchVisualization(vizKey) {
@@ -829,25 +926,49 @@ function switchVisualization(vizKey) {
 
 // === Clear Scene ===
 function clearScene() {
-  // Remove nodes
-  nodes.forEach(node => scene.remove(node));
+  // Remove and dispose nodes
+  nodes.forEach(node => {
+    scene.remove(node);
+    if (node.geometry) node.geometry.dispose();
+    if (node.material) node.material.dispose();
+  });
   nodes = [];
   
-  // Remove connections
-  connections.forEach(conn => scene.remove(conn));
+  // Remove and dispose connections
+  connections.forEach(conn => {
+    scene.remove(conn);
+    if (conn.geometry) conn.geometry.dispose();
+    if (conn.material) conn.material.dispose();
+  });
   connections = [];
   
-  // Remove particles
+  // Remove and dispose particles
   if (particleSystem) {
     scene.remove(particleSystem);
+    if (particleSystem.geometry) particleSystem.geometry.dispose();
+    if (particleSystem.material) particleSystem.material.dispose();
     particleSystem = null;
   }
   
-  // Remove core
+  // Remove and dispose core
   if (coreNode) {
+    coreNode.traverse(child => {
+      if (child.geometry) child.geometry.dispose();
+      if (child.material) child.material.dispose();
+    });
     scene.remove(coreNode);
     coreNode = null;
   }
+  
+  // Clear data pulses
+  dataPulses.forEach(pulse => {
+    pulse.traverse(child => {
+      if (child.geometry) child.geometry.dispose();
+      if (child.material) child.material.dispose();
+    });
+    scene.remove(pulse);
+  });
+  dataPulses = [];
 }
 
 // === Create Particles for Preset ===
@@ -1197,8 +1318,13 @@ function deleteNode(node) {
 }
 
 // === Data Pulses ===
+const MAX_DATA_PULSES = 50; // Prevent unbounded growth
+
 function spawnDataPulse() {
   if (connections.length === 0) return;
+  
+  // Limit active pulses to prevent memory issues
+  if (dataPulses.length >= MAX_DATA_PULSES) return;
   
   // Pick random connection
   const conn = connections[Math.floor(Math.random() * connections.length)];
@@ -1347,11 +1473,17 @@ function stopRecording() {
   
   if (recordedFrames.length < 5) {
     showStatus('Recording too short', 'error');
+    recordedFrames = []; // Clear frames on failure
     return;
   }
   
   showStatus('Processing GIF...');
   createGif();
+}
+
+// Clear recorded frames to free memory
+function clearRecordedFrames() {
+  recordedFrames = [];
 }
 
 function createGif() {
