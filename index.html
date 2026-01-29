@@ -1,0 +1,370 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ICE VISUALIZER // Neural Network</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    
+    body {
+      background: #000;
+      overflow: hidden;
+      font-family: 'Courier New', monospace;
+    }
+    
+    #canvas-container {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+    }
+    
+    canvas {
+      display: block;
+    }
+    
+    .overlay {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      pointer-events: none;
+      z-index: 10;
+    }
+    
+    .scanlines {
+      background: repeating-linear-gradient(
+        0deg,
+        rgba(0, 0, 0, 0.1) 0px,
+        rgba(0, 0, 0, 0.1) 1px,
+        transparent 1px,
+        transparent 2px
+      );
+      opacity: 0.3;
+    }
+    
+    .vignette {
+      background: radial-gradient(ellipse at center, transparent 40%, rgba(0,0,0,0.8) 100%);
+    }
+    
+    .hud {
+      position: fixed;
+      padding: 20px;
+      color: #02d7f2;
+      font-size: 12px;
+      letter-spacing: 2px;
+      text-transform: uppercase;
+      pointer-events: none;
+      z-index: 20;
+    }
+    
+    .hud-top-left {
+      top: 0;
+      left: 0;
+    }
+    
+    .hud-top-right {
+      top: 0;
+      right: 0;
+      text-align: right;
+    }
+    
+    .hud-bottom-left {
+      bottom: 0;
+      left: 0;
+    }
+    
+    .hud-title {
+      font-size: 18px;
+      color: #ffeb0b;
+      text-shadow: 0 0 10px rgba(255, 235, 11, 0.5);
+      margin-bottom: 8px;
+    }
+    
+    .hud-value {
+      color: #ff00aa;
+    }
+    
+    .hud-label {
+      opacity: 0.6;
+    }
+    
+    .controls {
+      position: fixed;
+      bottom: 20px;
+      left: 50%;
+      transform: translateX(-50%);
+      display: flex;
+      gap: 15px;
+      z-index: 20;
+    }
+    
+    .control-btn {
+      background: rgba(2, 215, 242, 0.1);
+      border: 1px solid #02d7f2;
+      color: #02d7f2;
+      padding: 10px 20px;
+      font-family: inherit;
+      font-size: 11px;
+      letter-spacing: 2px;
+      cursor: pointer;
+      transition: all 0.2s;
+      text-transform: uppercase;
+    }
+    
+    .control-btn:hover {
+      background: #02d7f2;
+      color: #000;
+    }
+    
+    .control-btn.active {
+      background: #ffeb0b;
+      border-color: #ffeb0b;
+      color: #000;
+    }
+    
+    .control-btn.accent {
+      border-color: #ff00aa;
+      color: #ff00aa;
+    }
+    
+    .control-btn.accent:hover,
+    .control-btn.accent.active {
+      background: #ff00aa;
+      color: #000;
+    }
+    
+    .control-group {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 6px;
+    }
+    
+    .control-label {
+      font-size: 9px;
+      color: #02d7f2;
+      opacity: 0.6;
+      letter-spacing: 2px;
+    }
+    
+    .btn-group {
+      display: flex;
+      gap: 8px;
+    }
+    
+    .control-select {
+      background: rgba(2, 215, 242, 0.1);
+      border: 1px solid #02d7f2;
+      color: #02d7f2;
+      padding: 10px 15px;
+      font-family: inherit;
+      font-size: 11px;
+      letter-spacing: 1px;
+      cursor: pointer;
+      outline: none;
+      min-width: 180px;
+    }
+    
+    .control-select option {
+      background: #000;
+      color: #02d7f2;
+    }
+    
+    .click-hint {
+      position: fixed;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      background: rgba(255, 0, 170, 0.9);
+      color: #000;
+      padding: 15px 30px;
+      font-size: 14px;
+      letter-spacing: 3px;
+      z-index: 30;
+      display: none;
+      pointer-events: none;
+    }
+    
+    .click-hint.active {
+      display: block;
+      animation: hintPulse 1s ease-in-out infinite;
+    }
+    
+    @keyframes hintPulse {
+      0%, 100% { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+      50% { opacity: 0.8; transform: translate(-50%, -50%) scale(1.02); }
+    }
+    
+    .controls {
+      flex-direction: row;
+      gap: 20px;
+      align-items: flex-end;
+    }
+    
+    .control-btn.toggle {
+      border-color: #555;
+      color: #555;
+    }
+    
+    .control-btn.toggle.active {
+      border-color: #02d7f2;
+      color: #02d7f2;
+      background: rgba(2, 215, 242, 0.1);
+    }
+    
+    .control-btn.export {
+      border-color: #ffeb0b;
+      color: #ffeb0b;
+    }
+    
+    .control-btn.export:hover {
+      background: #ffeb0b;
+      color: #000;
+    }
+    
+    .record-indicator {
+      position: fixed;
+      top: 20px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: rgba(255, 0, 0, 0.9);
+      color: #fff;
+      padding: 10px 25px;
+      font-size: 14px;
+      letter-spacing: 2px;
+      z-index: 100;
+      display: none;
+      animation: recordBlink 1s ease-in-out infinite;
+    }
+    
+    .record-indicator.active {
+      display: block;
+    }
+    
+    @keyframes recordBlink {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.5; }
+    }
+    
+    .export-status {
+      position: fixed;
+      bottom: 100px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: rgba(2, 215, 242, 0.9);
+      color: #000;
+      padding: 10px 25px;
+      font-size: 12px;
+      letter-spacing: 2px;
+      z-index: 100;
+      display: none;
+    }
+    
+    .export-status.active {
+      display: block;
+    }
+    
+    .export-status.success {
+      background: rgba(0, 255, 136, 0.9);
+    }
+    
+    .export-status.error {
+      background: rgba(255, 0, 100, 0.9);
+      color: #fff;
+    }
+    
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.5; }
+    }
+    
+    .pulse { animation: pulse 2s ease-in-out infinite; }
+  </style>
+</head>
+<body>
+  <div id="canvas-container"></div>
+  
+  <div class="overlay scanlines"></div>
+  <div class="overlay vignette"></div>
+  
+  <div class="hud hud-top-left">
+    <div class="hud-title">◈ ICE VISUALIZER</div>
+    <div><span class="hud-label">STATUS:</span> <span class="hud-value pulse">ACTIVE</span></div>
+    <div><span class="hud-label">NODES:</span> <span class="hud-value" id="node-count">0</span></div>
+    <div><span class="hud-label">CONNECTIONS:</span> <span class="hud-value" id="connection-count">0</span></div>
+  </div>
+  
+  <div class="hud hud-top-right">
+    <div><span class="hud-label">FPS:</span> <span class="hud-value" id="fps">60</span></div>
+    <div><span class="hud-label">RENDER:</span> <span class="hud-value">WebGL 2.0</span></div>
+  </div>
+  
+  <div class="hud hud-bottom-left">
+    <div><span class="hud-label">DRAG TO ROTATE</span></div>
+    <div><span class="hud-label">SCROLL TO ZOOM</span></div>
+  </div>
+  
+  <div class="controls">
+    <div class="control-group">
+      <label class="control-label">VISUALIZATION</label>
+      <select class="control-select" id="viz-select">
+        <option value="neural">NEURAL NETWORK</option>
+        <option value="storm">DATA STORM</option>
+        <option value="constellation">CONSTELLATION</option>
+        <option value="swarm">SWARM INTELLIGENCE</option>
+        <option value="matrix">MATRIX RAIN</option>
+      </select>
+    </div>
+    <div class="control-group">
+      <label class="control-label">ANIMATION</label>
+      <div class="btn-group">
+        <button class="control-btn active" data-mode="orbit">ORBIT</button>
+        <button class="control-btn" data-mode="pulse">PULSE</button>
+        <button class="control-btn" data-mode="expand">EXPAND</button>
+      </div>
+    </div>
+    <div class="control-group">
+      <label class="control-label">EFFECTS</label>
+      <div class="btn-group">
+        <button class="control-btn toggle active" id="btn-bloom">BLOOM</button>
+        <button class="control-btn toggle active" id="btn-pulses">PULSES</button>
+      </div>
+    </div>
+    <div class="control-group">
+      <label class="control-label">ACTIONS</label>
+      <div class="btn-group">
+        <button class="control-btn accent" id="btn-add-node">+ NODE</button>
+        <button class="control-btn" data-mode="reset">RESET</button>
+        <button class="control-btn" id="btn-hide-ui">◨ HIDE UI</button>
+      </div>
+    </div>
+    <div class="control-group">
+      <label class="control-label">EXPORT</label>
+      <div class="btn-group">
+        <button class="control-btn export" id="btn-screenshot">📷 PNG</button>
+        <button class="control-btn export" id="btn-record">🔴 GIF</button>
+      </div>
+    </div>
+  </div>
+  
+  <div class="click-hint" id="click-hint">CLICK TO PLACE NODE • RIGHT-CLICK TO DELETE</div>
+  <div class="record-indicator" id="record-indicator">⏺ RECORDING...</div>
+  <div class="export-status" id="export-status"></div>
+
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+        "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+      }
+    }
+  </script>
+  <!-- GIF recording library -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/gif.js/0.2.0/gif.js"></script>
+  <script type="module" src="app.js"></script>
+</body>
+</html>
